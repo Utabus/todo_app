@@ -1,0 +1,71 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch: # Cho phép trigger thủ công từ giao diện GitHub Actions
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  build-ipa:
+    name: Build & Package iOS IPA
+    runs-on: macos-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+          cache-key: "flutter-:os:-:channel:-:version:-:arch:-:hash:"
+
+      - name: Print Flutter & Xcode Version
+        run: |
+          flutter --version
+          xcodebuild -version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Verify code analysis & tests
+        run: |
+          flutter analyze --no-fatal-infos
+          flutter test
+
+      - name: Build iOS Application (No CodeSign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package Runner.app into IPA
+        run: |
+          mkdir -p build/ios/ipa/Payload
+          cp -r build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
+          cd build/ios/ipa
+          zip -r -q TodoApp.ipa Payload
+          ls -lh TodoApp.ipa
+        shell: bash
+
+      - name: Upload IPA as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TodoApp-iOS-Release-IPA
+          path: build/ios/ipa/TodoApp.ipa
+          retention-days: 14
+
+      - name: Create Release and Upload IPA (Tag Pushes only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/ios/ipa/TodoApp.ipa
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
